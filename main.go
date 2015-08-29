@@ -93,11 +93,17 @@ func (s *server) rootHandler() http.Handler {
 				http.Error(w, "Invalid data", http.StatusBadRequest)
 				return
 			}
-			if _, err := s.DB.Exec("INSERT INTO organizations (name) VALUES ($1)", r.Form["name"][0]); err != nil {
-				log.Print(err)
+			name := r.Form["name"][0]
+			const nameMaxLen = 128
+			if len(name) > nameMaxLen {
+				http.Error(w, fmt.Sprintf("Name must be less than %v characters long", nameMaxLen+1), http.StatusBadRequest)
+				return
+			}
+			if _, err := s.DB.Exec("INSERT INTO organizations (name) VALUES ($1)", name); err != nil {
 				if err.Error() == "pq: duplicate key value violates unique constraint \"organizations_pkey\"" {
 					http.Error(w, "That name has already been taken", http.StatusBadRequest)
 				} else {
+					log.Print(err)
 					http.Error(w, "Internal application error", http.StatusInternalServerError)
 				}
 				return
