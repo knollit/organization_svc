@@ -3,12 +3,34 @@ package main
 import (
 	"database/sql"
 	"encoding/json"
+	"flag"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
 
 	_ "github.com/lib/pq"
 )
+
+var (
+	dbAddr = flag.String("db-addr", os.Getenv("POSTGRES_PORT_5432_TCP_ADDR"), "Database address")
+	dbPW   = flag.String("db-pw", os.Getenv("POSTGRES_PASSWORD"), "Database password")
+)
+
+func main() {
+	connStr := fmt.Sprintf("user=postgres host=%v password=%v dbname=postgres sslmode=disable", *dbAddr, *dbPW)
+	db, _ := sql.Open("postgres", connStr)
+	server := &server{
+		DB: db,
+	}
+	defer func() {
+		if err := server.Close(); err != nil {
+			log.Println("Failed to close server: ", err)
+		}
+	}()
+
+	log.Fatal(server.run(":80"))
+}
 
 type server struct {
 	DB *sql.DB
@@ -19,14 +41,7 @@ func (s *server) handler() http.Handler {
 }
 
 func (s *server) run(addr string) error {
-	dbAddr := os.Getenv("POSTGRES_PORT_5432_TCP_ADDR")
-	dbPW := os.Getenv("POSTGRES_PASSWORD")
-	db, err := sql.Open("postgres", "user=postgres password="+dbPW+" host="+dbAddr+" dbname=postgres sslmode=disable")
-	if err != nil {
-		return err
-	}
-	s.DB = db
-	if err = s.DB.Ping(); err != nil {
+	if err := s.DB.Ping(); err != nil {
 		return err
 	}
 	httpServer := &http.Server{
@@ -44,17 +59,6 @@ func (s *server) Close() error {
 	}
 
 	return nil
-}
-
-func main() {
-	server := &server{}
-	defer func() {
-		if err := server.Close(); err != nil {
-			log.Println("Failed to close server: ", err)
-		}
-	}()
-
-	log.Fatal(server.run(":80"))
 }
 
 func (s *server) rootHandler() http.Handler {
@@ -91,7 +95,11 @@ func (s *server) rootHandler() http.Handler {
 			}
 			if _, err := s.DB.Exec("INSERT INTO organizations (name) VALUES ($1)", r.Form["name"][0]); err != nil {
 				log.Print(err)
-				http.Error(w, "Internal application error", http.StatusInternalServerError)
+				if err.Error() == "pq: duplicate key value violates unique constraint \"organizations_pkey\"" {
+					http.Error(w, "That name has already been taken", http.StatusBadRequest)
+				} else {
+					http.Error(w, "Internal application error", http.StatusInternalServerError)
+				}
 				return
 			}
 			w.WriteHeader(http.StatusOK)
