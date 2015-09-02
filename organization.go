@@ -28,8 +28,13 @@ func allOrganizations(s *server) (orgs []organization, err error) {
 
 func (o *organization) save(s *server) (err error) {
 	const nameMaxLen = 128
+	const nameMinLen = 3
 	if len(o.Name) > nameMaxLen {
 		o.err = fmt.Errorf("Name must be less than %v characters long", nameMaxLen+1)
+		return
+	}
+	if len(o.Name) < nameMinLen {
+		o.err = fmt.Errorf("Name must be %v or more characters long", nameMinLen)
 		return
 	}
 	if _, err = s.DB.Exec("INSERT INTO organizations (name) VALUES ($1)", o.Name); err != nil {

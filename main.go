@@ -75,14 +75,10 @@ func (s *server) rootHandler() http.Handler {
 			return
 		} else if r.Method == "POST" {
 			if err := r.ParseForm(); err != nil {
-				http.Error(w, "Error parsing form", http.StatusBadRequest)
+				http.Error(w, "Bad request", http.StatusBadRequest)
 				return
 			}
-			if len(r.Form["name"]) != 1 {
-				http.Error(w, "Invalid data", http.StatusBadRequest)
-				return
-			}
-			org := organization{Name: r.Form["name"][0]}
+			org := organization{Name: r.Form.Get("name")}
 			if err := org.save(s); err != nil {
 				log.Print(err)
 				http.Error(w, "Internal application error", http.StatusInternalServerError)
