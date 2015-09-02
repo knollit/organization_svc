@@ -64,25 +64,14 @@ func (s *server) Close() error {
 func (s *server) rootHandler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == "GET" {
-			rows, err := s.DB.Query("SELECT name FROM organizations")
+			orgs, err := allOrganizations(s)
 			if err != nil {
 				log.Print(err)
 				http.Error(w, "Internal application error", http.StatusInternalServerError)
 				return
 			}
-			defer rows.Close()
-			var names []string
-			for rows.Next() {
-				var name string
-				if err := rows.Scan(&name); err != nil {
-					log.Print(err)
-					http.Error(w, "Internal application error", http.StatusInternalServerError)
-					return
-				}
-				names = append(names, name)
-			}
 			w.Header().Set("Content-Type", "application/json; charset=utf-8")
-			json.NewEncoder(w).Encode(names)
+			json.NewEncoder(w).Encode(orgs)
 			return
 		} else if r.Method == "POST" {
 			if err := r.ParseForm(); err != nil {
@@ -93,19 +82,14 @@ func (s *server) rootHandler() http.Handler {
 				http.Error(w, "Invalid data", http.StatusBadRequest)
 				return
 			}
-			name := r.Form["name"][0]
-			const nameMaxLen = 128
-			if len(name) > nameMaxLen {
-				http.Error(w, fmt.Sprintf("Name must be less than %v characters long", nameMaxLen+1), http.StatusBadRequest)
+			org := organization{Name: r.Form["name"][0]}
+			if err := org.save(s); err != nil {
+				log.Print(err)
+				http.Error(w, "Internal application error", http.StatusInternalServerError)
 				return
 			}
-			if _, err := s.DB.Exec("INSERT INTO organizations (name) VALUES ($1)", name); err != nil {
-				if err.Error() == "pq: duplicate key value violates unique constraint \"organizations_pkey\"" {
-					http.Error(w, "That name has already been taken", http.StatusBadRequest)
-				} else {
-					log.Print(err)
-					http.Error(w, "Internal application error", http.StatusInternalServerError)
-				}
+			if org.err != nil {
+				http.Error(w, org.err.Error(), http.StatusBadRequest)
 				return
 			}
 			w.WriteHeader(http.StatusOK)
