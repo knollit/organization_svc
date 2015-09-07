@@ -2,14 +2,15 @@ package main
 
 import (
 	"database/sql"
-	"encoding/json"
 	"flag"
 	"fmt"
 	"log"
 	"net/http"
 	"os"
 
+	"github.com/golang/protobuf/proto"
 	_ "github.com/lib/pq"
+	orgPB "github.com/mikeraimondi/api_service/organizations/proto"
 )
 
 var (
@@ -70,8 +71,20 @@ func (s *server) rootHandler() http.Handler {
 				http.Error(w, "Internal application error", http.StatusInternalServerError)
 				return
 			}
-			w.Header().Set("Content-Type", "application/json; charset=utf-8")
-			json.NewEncoder(w).Encode(orgs)
+			orgspb := []*orgPB.Organization{}
+			for _, o := range orgs {
+				orgspb = append(orgspb, &orgPB.Organization{Name: *proto.String(o.Name)})
+			}
+			orgsMsg := &orgPB.Organizations{
+				Orgs: orgspb,
+			}
+			data, err := proto.Marshal(orgsMsg)
+			if err != nil {
+				log.Print(err)
+				http.Error(w, "Internal application error", http.StatusInternalServerError)
+				return
+			}
+			w.Write(data)
 			return
 		} else if r.Method == "POST" {
 			if err := r.ParseForm(); err != nil {
