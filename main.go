@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"flag"
 	"fmt"
+	"io/ioutil"
 	"log"
 	"net/http"
 	"os"
@@ -87,21 +88,36 @@ func (s *server) rootHandler() http.Handler {
 			w.Write(data)
 			return
 		} else if r.Method == "POST" {
-			if err := r.ParseForm(); err != nil {
-				http.Error(w, "Bad request", http.StatusBadRequest)
+			buf, err := ioutil.ReadAll(r.Body)
+			if err != nil {
+				log.Print(err)
+				http.Error(w, "Internal application error", http.StatusInternalServerError)
 				return
 			}
-			org := organization{Name: r.Form.Get("name")}
+			orgMsg := &orgPB.Organization{}
+			err = proto.Unmarshal(buf, orgMsg)
+			if err != nil {
+				log.Print(err)
+				http.Error(w, "Internal application error", http.StatusInternalServerError)
+				return
+			}
+
+			org := organization{Name: orgMsg.Name}
 			if err := org.save(s); err != nil {
 				log.Print(err)
 				http.Error(w, "Internal application error", http.StatusInternalServerError)
 				return
 			}
 			if org.err != nil {
-				http.Error(w, org.err.Error(), http.StatusBadRequest)
+				orgMsg.Error = *proto.String(org.err.Error())
+			}
+			data, err := proto.Marshal(orgMsg)
+			if err != nil {
+				log.Print(err)
+				http.Error(w, "Internal application error", http.StatusInternalServerError)
 				return
 			}
-			w.WriteHeader(http.StatusOK)
+			w.Write(data)
 			return
 		} else {
 			w.Header().Set("Allow", "GET, POST")
