@@ -2,6 +2,6 @@ FROM centurylink/ca-certs
 
 COPY organizations /
 
-EXPOSE 80
+EXPOSE 13800
 
 ENTRYPOINT ["/organizations"]

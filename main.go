@@ -4,9 +4,9 @@ import (
 	"database/sql"
 	"flag"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"log"
-	"net/http"
+	"net"
 	"os"
 
 	"github.com/golang/protobuf/proto"
@@ -31,97 +31,101 @@ func main() {
 		}
 	}()
 
-	log.Fatal(server.run(":80"))
+	log.Fatal(server.run(":13800"))
 }
 
 type server struct {
-	DB *sql.DB
+	DB       *sql.DB
+	listener net.Listener
 }
 
-func (s *server) handler() http.Handler {
-	return s.rootHandler()
+func (s *server) handler(conn net.Conn) {
+	defer conn.Close()
+	buf := make([]byte, 1024)
+	i, err := conn.Read(buf)
+	if err != nil && err != io.EOF {
+		log.Print(err)
+		// TODO send error
+		return
+	}
+	req := &orgPB.Request{}
+	if err := proto.Unmarshal(buf[:i], req); err != nil {
+		log.Print(err)
+		// TODO send error
+		return
+	}
+
+	if req.Action == orgPB.Request_INDEX {
+		orgs, err := allOrganizations(s)
+		if err != nil {
+			log.Print(err)
+			// TODO send error
+			return
+		}
+		orgspb := []*orgPB.Organization{}
+		for _, o := range orgs {
+			orgspb = append(orgspb, &orgPB.Organization{Name: *proto.String(o.Name)})
+		}
+		orgsMsg := &orgPB.Organizations{
+			Orgs: orgspb,
+		}
+		data, err := proto.Marshal(orgsMsg)
+		if err != nil {
+			log.Print(err)
+			// TODO send error
+			return
+		}
+		conn.Write(data)
+		return
+	} else if req.Action == orgPB.Request_NEW {
+		org := organization{Name: req.Organization.Name}
+		if err := org.save(s); err != nil {
+			log.Print(err)
+			// TODO send error
+			return
+		}
+		orgMsg := &orgPB.Organization{}
+		if org.err != nil {
+			orgMsg.Error = *proto.String(org.err.Error())
+		}
+		data, err := proto.Marshal(orgMsg)
+		if err != nil {
+			log.Print(err)
+			// TODO send error
+			return
+		}
+		conn.Write(data)
+		return
+	}
 }
 
 func (s *server) run(addr string) error {
 	if err := s.DB.Ping(); err != nil {
 		return err
 	}
-	httpServer := &http.Server{
-		Addr:    addr,
-		Handler: s.handler(),
+	l, err := net.Listen("tcp", addr)
+	if err != nil {
+		return err
 	}
+	s.listener = l
 
 	log.Printf("Listening for requests on %s...\n", addr)
-	return httpServer.ListenAndServe()
+	for {
+		conn, err := s.listener.Accept()
+		if err != nil {
+			return err
+		}
+		go s.handler(conn)
+	}
 }
 
 func (s *server) Close() error {
+	if err := s.listener.Close(); err != nil {
+		log.Println("Failed to close TCP listener cleanly: ", err)
+	}
 	if err := s.DB.Close(); err != nil {
 		log.Println("Failed to close database connection cleanly: ", err)
 	}
 
 	return nil
-}
-
-func (s *server) rootHandler() http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method == "GET" {
-			orgs, err := allOrganizations(s)
-			if err != nil {
-				log.Print(err)
-				http.Error(w, "Internal application error", http.StatusInternalServerError)
-				return
-			}
-			orgspb := []*orgPB.Organization{}
-			for _, o := range orgs {
-				orgspb = append(orgspb, &orgPB.Organization{Name: *proto.String(o.Name)})
-			}
-			orgsMsg := &orgPB.Organizations{
-				Orgs: orgspb,
-			}
-			data, err := proto.Marshal(orgsMsg)
-			if err != nil {
-				log.Print(err)
-				http.Error(w, "Internal application error", http.StatusInternalServerError)
-				return
-			}
-			w.Write(data)
-			return
-		} else if r.Method == "POST" {
-			buf, err := ioutil.ReadAll(r.Body)
-			if err != nil {
-				log.Print(err)
-				http.Error(w, "Internal application error", http.StatusInternalServerError)
-				return
-			}
-			orgMsg := &orgPB.Organization{}
-			err = proto.Unmarshal(buf, orgMsg)
-			if err != nil {
-				log.Print(err)
-				http.Error(w, "Internal application error", http.StatusInternalServerError)
-				return
-			}
-
-			org := organization{Name: orgMsg.Name}
-			if err := org.save(s); err != nil {
-				log.Print(err)
-				http.Error(w, "Internal application error", http.StatusInternalServerError)
-				return
-			}
-			if org.err != nil {
-				orgMsg.Error = *proto.String(org.err.Error())
-			}
-			data, err := proto.Marshal(orgMsg)
-			if err != nil {
-				log.Print(err)
-				http.Error(w, "Internal application error", http.StatusInternalServerError)
-				return
-			}
-			w.Write(data)
-			return
-		} else {
-			w.Header().Set("Allow", "GET, POST")
-			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		}
-	})
 }
