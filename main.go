@@ -4,13 +4,14 @@ import (
 	"database/sql"
 	"flag"
 	"fmt"
-	"io"
 	"log"
 	"net"
 	"os"
 
 	"github.com/golang/protobuf/proto"
 	_ "github.com/lib/pq"
+
+	"github.com/mikeraimondi/api_service"
 	orgPB "github.com/mikeraimondi/api_service/organizations/proto"
 )
 
@@ -41,15 +42,14 @@ type server struct {
 
 func (s *server) handler(conn net.Conn) {
 	defer conn.Close()
-	buf := make([]byte, 1024)
-	i, err := conn.Read(buf)
-	if err != nil && err != io.EOF {
+	buf, err := apiService.ReadWithSize(conn)
+	if err != nil {
 		log.Print(err)
 		// TODO send error
 		return
 	}
 	req := &orgPB.Request{}
-	if err := proto.Unmarshal(buf[:i], req); err != nil {
+	if err := proto.Unmarshal(buf, req); err != nil {
 		log.Print(err)
 		// TODO send error
 		return
@@ -75,7 +75,7 @@ func (s *server) handler(conn net.Conn) {
 			// TODO send error
 			return
 		}
-		conn.Write(data)
+		apiService.WriteWithSize(conn, data)
 		return
 	} else if req.Action == orgPB.Request_NEW {
 		org := organization{Name: req.Organization.Name}
@@ -94,7 +94,7 @@ func (s *server) handler(conn net.Conn) {
 			// TODO send error
 			return
 		}
-		conn.Write(data)
+		apiService.WriteWithSize(conn, data)
 		return
 	}
 }
