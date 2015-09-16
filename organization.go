@@ -6,7 +6,7 @@ import (
 )
 
 type organization struct {
-	Name string `json:"name"`
+	Name string
 	err  error
 }
 

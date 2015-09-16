@@ -62,20 +62,15 @@ func (s *server) handler(conn net.Conn) {
 			// TODO send error
 			return
 		}
-		orgspb := []*orgPB.Organization{}
 		for _, o := range orgs {
-			orgspb = append(orgspb, &orgPB.Organization{Name: *proto.String(o.Name)})
+			data, err := proto.Marshal(&orgPB.Organization{Name: *proto.String(o.Name)})
+			if err != nil {
+				log.Print(err)
+				// TODO send error
+				return
+			}
+			apiService.WriteWithSize(conn, data)
 		}
-		orgsMsg := &orgPB.Organizations{
-			Orgs: orgspb,
-		}
-		data, err := proto.Marshal(orgsMsg)
-		if err != nil {
-			log.Print(err)
-			// TODO send error
-			return
-		}
-		apiService.WriteWithSize(conn, data)
 		return
 	} else if req.Action == orgPB.Request_NEW {
 		org := organization{Name: req.Organization.Name}
@@ -84,11 +79,10 @@ func (s *server) handler(conn net.Conn) {
 			// TODO send error
 			return
 		}
-		orgMsg := &orgPB.Organization{}
 		if org.err != nil {
-			orgMsg.Error = *proto.String(org.err.Error())
+			req.Organization.Error = *proto.String(org.err.Error())
 		}
-		data, err := proto.Marshal(orgMsg)
+		data, err := proto.Marshal(req.Organization)
 		if err != nil {
 			log.Print(err)
 			// TODO send error
