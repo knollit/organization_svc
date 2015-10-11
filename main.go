@@ -79,7 +79,7 @@ type server struct {
 
 func (s *server) handler(conn net.Conn) {
 	defer conn.Close()
-	buf, err := apiService.ReadWithSize(conn)
+	buf, _, err := apiService.ReadWithSize(conn)
 	if err != nil {
 		log.Print(err)
 		// TODO send error
@@ -106,7 +106,9 @@ func (s *server) handler(conn net.Conn) {
 				// TODO send error
 				return
 			}
-			apiService.WriteWithSize(conn, data)
+			if _, err := apiService.WriteWithSize(conn, data); err != nil {
+				log.Print(err)
+			}
 		}
 		return
 	} else if req.Action == orgPB.Request_NEW {
@@ -125,7 +127,9 @@ func (s *server) handler(conn net.Conn) {
 			// TODO send error
 			return
 		}
-		apiService.WriteWithSize(conn, data)
+		if _, err := apiService.WriteWithSize(conn, data); err != nil {
+			log.Print(err)
+		}
 		return
 	}
 }
