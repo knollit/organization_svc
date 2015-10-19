@@ -14,8 +14,8 @@ import (
 	"github.com/golang/protobuf/proto"
 	_ "github.com/lib/pq"
 
-	"github.com/mikeraimondi/api_service"
-	orgPB "github.com/mikeraimondi/api_service/organizations/proto"
+	"github.com/mikeraimondi/knollit/common"
+	orgPB "github.com/mikeraimondi/knollit/organizations/proto"
 )
 
 var (
@@ -79,7 +79,7 @@ type server struct {
 
 func (s *server) handler(conn net.Conn) {
 	defer conn.Close()
-	buf, _, err := apiService.ReadWithSize(conn)
+	buf, _, err := common.ReadWithSize(conn)
 	if err != nil {
 		log.Print(err)
 		// TODO send error
@@ -106,7 +106,7 @@ func (s *server) handler(conn net.Conn) {
 				// TODO send error
 				return
 			}
-			if _, err := apiService.WriteWithSize(conn, data); err != nil {
+			if _, err := common.WriteWithSize(conn, data); err != nil {
 				log.Print(err)
 			}
 		}
@@ -127,7 +127,7 @@ func (s *server) handler(conn net.Conn) {
 			// TODO send error
 			return
 		}
-		if _, err := apiService.WriteWithSize(conn, data); err != nil {
+		if _, err := common.WriteWithSize(conn, data); err != nil {
 			log.Print(err)
 		}
 		return
