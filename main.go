@@ -15,7 +15,7 @@ import (
 	_ "github.com/lib/pq"
 
 	"github.com/mikeraimondi/knollit/common"
-	orgPB "github.com/mikeraimondi/knollit/organizations/proto"
+	organizationProto "github.com/mikeraimondi/knollit/organizations/proto"
 )
 
 var (
@@ -85,14 +85,14 @@ func (s *server) handler(conn net.Conn) {
 		// TODO send error
 		return
 	}
-	req := &orgPB.Request{}
+	req := &organizationProto.Request{}
 	if err := proto.Unmarshal(buf, req); err != nil {
 		log.Print(err)
 		// TODO send error
 		return
 	}
 
-	if req.Action == orgPB.Request_INDEX {
+	if req.Action == organizationProto.Request_INDEX {
 		orgs, err := allOrganizations(s)
 		if err != nil {
 			log.Print(err)
@@ -100,7 +100,7 @@ func (s *server) handler(conn net.Conn) {
 			return
 		}
 		for _, o := range orgs {
-			data, err := proto.Marshal(&orgPB.Organization{Name: *proto.String(o.Name)})
+			data, err := proto.Marshal(&organizationProto.Organization{Name: *proto.String(o.Name)})
 			if err != nil {
 				log.Print(err)
 				// TODO send error
@@ -111,7 +111,7 @@ func (s *server) handler(conn net.Conn) {
 			}
 		}
 		return
-	} else if req.Action == orgPB.Request_NEW {
+	} else if req.Action == organizationProto.Request_NEW {
 		org := organization{Name: req.Organization.Name}
 		if err := org.save(s); err != nil {
 			log.Print(err)
