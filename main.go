@@ -12,10 +12,10 @@ import (
 	"os"
 	"sync"
 
-	"github.com/golang/protobuf/proto"
+	"github.com/google/flatbuffers/go"
 	_ "github.com/lib/pq"
 
-	organizationProto "github.com/mikeraimondi/knollit/organizations/proto"
+	"github.com/mikeraimondi/knollit/organization_svc/organizations"
 	"github.com/mikeraimondi/prefixedio"
 )
 
@@ -73,6 +73,11 @@ func main() {
 
 func newServer() *server {
 	return &server{
+		builderPool: sync.Pool{
+			New: func() interface{} {
+				return flatbuffers.NewBuilder(0)
+			},
+		},
 		prefixedBufPool: sync.Pool{
 			New: func() interface{} {
 				return &prefixedio.Buffer{}
@@ -85,6 +90,7 @@ type server struct {
 	DB              *sql.DB
 	TLSConf         *tls.Config
 	listener        net.Listener
+	builderPool     sync.Pool
 	prefixedBufPool sync.Pool
 }
 
@@ -99,14 +105,11 @@ func (s *server) handler(conn net.Conn) {
 		// TODO send error
 		return
 	}
-	req := &organizationProto.Request{}
-	if err := proto.Unmarshal(buf.Bytes(), req); err != nil {
-		log.Print(err)
-		// TODO send error
-		return
-	}
+	req := organizations.GetRootAsOrganization(buf.Bytes(), 0)
 
-	if req.Action == organizationProto.Request_INDEX {
+	b := s.builderPool.Get().(*flatbuffers.Builder)
+	defer s.builderPool.Put(b)
+	if req.Action() == organizations.ActionIndex {
 		orgs, err := allOrganizations(s)
 		if err != nil {
 			log.Print(err)
@@ -114,34 +117,19 @@ func (s *server) handler(conn net.Conn) {
 			return
 		}
 		for _, o := range orgs {
-			data, err := proto.Marshal(&organizationProto.Organization{Name: *proto.String(o.Name)})
-			if err != nil {
-				log.Print(err)
-				// TODO send error
-				return
-			}
-			if _, err := prefixedio.WriteBytes(conn, data); err != nil {
+			if _, err := prefixedio.WriteBytes(conn, o.toFlatBufferBytes(b)); err != nil {
 				log.Print(err)
 			}
 		}
 		return
-	} else if req.Action == organizationProto.Request_NEW {
-		org := organization{Name: req.Organization.Name}
+	} else if req.Action() == organizations.ActionNew {
+		org := organizationFromFlatBuffer(req)
 		if err := org.save(s); err != nil {
 			log.Print(err)
 			// TODO send error
 			return
 		}
-		if org.err != nil {
-			req.Organization.Error = *proto.String(org.err.Error())
-		}
-		data, err := proto.Marshal(req.Organization)
-		if err != nil {
-			log.Print(err)
-			// TODO send error
-			return
-		}
-		if _, err := prefixedio.WriteBytes(conn, data); err != nil {
+		if _, err := prefixedio.WriteBytes(conn, org.toFlatBufferBytes(b)); err != nil {
 			log.Print(err)
 		}
 		return

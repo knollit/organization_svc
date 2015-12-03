@@ -1,8 +1,7 @@
 #!/bin/sh
 
-mkdir -p proto
-protoc --go_out=proto *.proto
+flatc -g *.fbs
 go get
-CGO_ENABLED=0 GOOS=linux go build -a --installsuffix cgo --ldflags="-s" -o organizations .
+CGO_ENABLED=0 GOOS=linux go build -a --installsuffix cgo --ldflags="-s" -o organization_svc .
 docker build -t organizations:latest .
-rm organizations
+rm organization_svc
