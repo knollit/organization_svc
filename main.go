@@ -10,12 +10,13 @@ import (
 	"log"
 	"net"
 	"os"
+	"sync"
 
 	"github.com/golang/protobuf/proto"
 	_ "github.com/lib/pq"
 
-	"github.com/mikeraimondi/knollit/common"
 	organizationProto "github.com/mikeraimondi/knollit/organizations/proto"
+	"github.com/mikeraimondi/prefixedio"
 )
 
 var (
@@ -46,21 +47,20 @@ func main() {
 		log.Fatal("Failed to parse CA cert")
 	}
 
-	server := &server{
-		DB: db,
-		TLSConf: &tls.Config{
-			Certificates:       []tls.Certificate{cert},
-			RootCAs:            caCertPool,
-			ClientAuth:         tls.RequireAndVerifyClientCert,
-			ClientCAs:          caCertPool,
-			InsecureSkipVerify: true, //TODO dev only
-			CipherSuites: []uint16{
-				tls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
-				tls.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
-			},
-			PreferServerCipherSuites: true,
-			MinVersion:               tls.VersionTLS12,
+	server := newServer()
+	server.DB = db
+	server.TLSConf = &tls.Config{
+		Certificates:       []tls.Certificate{cert},
+		RootCAs:            caCertPool,
+		ClientAuth:         tls.RequireAndVerifyClientCert,
+		ClientCAs:          caCertPool,
+		InsecureSkipVerify: true, //TODO dev only
+		CipherSuites: []uint16{
+			tls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
+			tls.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
 		},
+		PreferServerCipherSuites: true,
+		MinVersion:               tls.VersionTLS12,
 	}
 	defer func() {
 		if err := server.Close(); err != nil {
@@ -71,22 +71,36 @@ func main() {
 	log.Fatal(server.run(":13800"))
 }
 
+func newServer() *server {
+	return &server{
+		prefixedBufPool: sync.Pool{
+			New: func() interface{} {
+				return &prefixedio.Buffer{}
+			},
+		},
+	}
+}
+
 type server struct {
-	DB       *sql.DB
-	TLSConf  *tls.Config
-	listener net.Listener
+	DB              *sql.DB
+	TLSConf         *tls.Config
+	listener        net.Listener
+	prefixedBufPool sync.Pool
 }
 
 func (s *server) handler(conn net.Conn) {
 	defer conn.Close()
-	buf, _, err := common.ReadWithSize(conn)
+
+	buf := s.prefixedBufPool.Get().(*prefixedio.Buffer)
+	defer s.prefixedBufPool.Put(buf)
+	_, err := buf.ReadFrom(conn)
 	if err != nil {
 		log.Print(err)
 		// TODO send error
 		return
 	}
 	req := &organizationProto.Request{}
-	if err := proto.Unmarshal(buf, req); err != nil {
+	if err := proto.Unmarshal(buf.Bytes(), req); err != nil {
 		log.Print(err)
 		// TODO send error
 		return
@@ -106,7 +120,7 @@ func (s *server) handler(conn net.Conn) {
 				// TODO send error
 				return
 			}
-			if _, err := common.WriteWithSize(conn, data); err != nil {
+			if _, err := prefixedio.WriteBytes(conn, data); err != nil {
 				log.Print(err)
 			}
 		}
@@ -127,7 +141,7 @@ func (s *server) handler(conn net.Conn) {
 			// TODO send error
 			return
 		}
-		if _, err := common.WriteWithSize(conn, data); err != nil {
+		if _, err := prefixedio.WriteBytes(conn, data); err != nil {
 			log.Print(err)
 		}
 		return
