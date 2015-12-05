@@ -28,28 +28,30 @@ var (
 )
 
 func main() {
+	logger := log.New(os.Stdout, "", log.LstdFlags)
 	connStr := fmt.Sprintf("user=postgres host=%v password=%v dbname=postgres sslmode=disable", *dbAddr, *dbPW)
 	db, _ := sql.Open("postgres", connStr)
 
 	// Load server cert
 	cert, err := tls.LoadX509KeyPair(*certPath, *keyPath)
 	if err != nil {
-		log.Fatal("Failed to open server cert and/or key: ", err)
+		logger.Fatal("Failed to open server cert and/or key: ", err)
 	}
 
 	// Load CA cert
 	caCert, err := ioutil.ReadFile(*caPath)
 	if err != nil {
-		log.Fatal("Failed to open CA cert: ", err)
+		logger.Fatal("Failed to open CA cert: ", err)
 	}
 	caCertPool := x509.NewCertPool()
 	if ok := caCertPool.AppendCertsFromPEM(caCert); !ok {
-		log.Fatal("Failed to parse CA cert")
+		logger.Fatal("Failed to parse CA cert")
 	}
 
 	server := newServer()
-	server.DB = db
-	server.TLSConf = &tls.Config{
+	server.logger = logger
+	server.db = db
+	tlsConf := &tls.Config{
 		Certificates:       []tls.Certificate{cert},
 		RootCAs:            caCertPool,
 		ClientAuth:         tls.RequireAndVerifyClientCert,
@@ -62,13 +64,16 @@ func main() {
 		PreferServerCipherSuites: true,
 		MinVersion:               tls.VersionTLS12,
 	}
+	server.listenFunc = func(addr string) (net.Listener, error) {
+		return tls.Listen("tcp", addr, tlsConf)
+	}
 	defer func() {
 		if err := server.Close(); err != nil {
-			log.Println("Failed to close server: ", err)
+			server.logger.Println("Failed to close server: ", err)
 		}
 	}()
 
-	log.Fatal(server.run(":13800"))
+	server.logger.Fatal(server.run(":13800"))
 }
 
 func newServer() *server {
@@ -87,9 +92,10 @@ func newServer() *server {
 }
 
 type server struct {
-	DB              *sql.DB
-	TLSConf         *tls.Config
-	listener        net.Listener
+	db              *sql.DB
+	listenFunc      func(string) (net.Listener, error)
+	logger          *log.Logger
+	ready           chan int
 	builderPool     sync.Pool
 	prefixedBufPool sync.Pool
 }
@@ -101,7 +107,7 @@ func (s *server) handler(conn net.Conn) {
 	defer s.prefixedBufPool.Put(buf)
 	_, err := buf.ReadFrom(conn)
 	if err != nil {
-		log.Print(err)
+		s.logger.Print(err)
 		// TODO send error
 		return
 	}
@@ -112,43 +118,49 @@ func (s *server) handler(conn net.Conn) {
 	if req.Action() == organizations.ActionIndex {
 		orgs, err := allOrganizations(s)
 		if err != nil {
-			log.Print(err)
+			s.logger.Print(err)
 			// TODO send error
 			return
 		}
 		for _, o := range orgs {
 			if _, err := prefixedio.WriteBytes(conn, o.toFlatBufferBytes(b)); err != nil {
-				log.Print(err)
+				s.logger.Print(err)
 			}
 		}
 		return
 	} else if req.Action() == organizations.ActionNew {
 		org := organizationFromFlatBuffer(req)
 		if err := org.save(s); err != nil {
-			log.Print(err)
+			s.logger.Print(err)
 			// TODO send error
 			return
 		}
 		if _, err := prefixedio.WriteBytes(conn, org.toFlatBufferBytes(b)); err != nil {
-			log.Print(err)
+			s.logger.Print(err)
 		}
 		return
 	}
 }
 
 func (s *server) run(addr string) error {
-	if err := s.DB.Ping(); err != nil {
+	if err := s.db.Ping(); err != nil {
 		return err
 	}
-	l, err := tls.Listen("tcp", addr, s.TLSConf)
+	listener, err := s.listenFunc(addr)
 	if err != nil {
 		return err
 	}
-	s.listener = l
+	s.listenFunc = func(s string) (net.Listener, error) {
+		return listener, nil
+	}
 
-	log.Printf("Listening for requests on %s...\n", addr)
+	s.logger.Printf("Listening for requests on %s...\n", addr)
+	if s.ready != nil {
+		s.ready <- 1
+	}
+
 	for {
-		conn, err := s.listener.Accept()
+		conn, err := listener.Accept()
 		if err != nil {
 			return err
 		}
@@ -157,11 +169,12 @@ func (s *server) run(addr string) error {
 }
 
 func (s *server) Close() error {
-	if err := s.listener.Close(); err != nil {
-		log.Println("Failed to close TCP listener cleanly: ", err)
+	listener, _ := s.listenFunc("")
+	if err := listener.Close(); err != nil {
+		s.logger.Println("Failed to close TCP listener cleanly: ", err)
 	}
-	if err := s.DB.Close(); err != nil {
-		log.Println("Failed to close database connection cleanly: ", err)
+	if err := s.db.Close(); err != nil {
+		s.logger.Println("Failed to close database connection cleanly: ", err)
 	}
 
 	return nil

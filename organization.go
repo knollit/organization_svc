@@ -14,7 +14,7 @@ type organization struct {
 }
 
 func allOrganizations(s *server) (orgs []organization, err error) {
-	rows, err := s.DB.Query("SELECT name FROM organizations")
+	rows, err := s.db.Query("SELECT name FROM organizations")
 	if err != nil {
 		return
 	}
@@ -40,7 +40,7 @@ func (org *organization) save(s *server) (err error) {
 		org.err = fmt.Sprintf("Name must be %v or more characters long", nameMinLen)
 		return
 	}
-	if _, err = s.DB.Exec("INSERT INTO organizations (name) VALUES ($1)", org.Name); err != nil {
+	if _, err = s.db.Exec("INSERT INTO organizations (name) VALUES ($1)", org.Name); err != nil {
 		if err.Error() == "pq: duplicate key value violates unique constraint \"organizations_pkey\"" {
 			org.err = "That name has already been taken"
 			return nil
