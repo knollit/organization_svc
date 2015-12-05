@@ -115,8 +115,9 @@ func (s *server) handler(conn net.Conn) {
 
 	b := s.builderPool.Get().(*flatbuffers.Builder)
 	defer s.builderPool.Put(b)
-	if req.Action() == organizations.ActionIndex {
-		orgs, err := allOrganizations(s)
+	switch req.Action() {
+	case organizations.ActionIndex:
+		orgs, err := allOrganizations(s.db)
 		if err != nil {
 			s.logger.Print(err)
 			// TODO send error
@@ -127,8 +128,7 @@ func (s *server) handler(conn net.Conn) {
 				s.logger.Print(err)
 			}
 		}
-		return
-	} else if req.Action() == organizations.ActionNew {
+	case organizations.ActionNew:
 		org := organizationFromFlatBuffer(req)
 		if err := org.save(s); err != nil {
 			s.logger.Print(err)
@@ -138,8 +138,17 @@ func (s *server) handler(conn net.Conn) {
 		if _, err := prefixedio.WriteBytes(conn, org.toFlatBufferBytes(b)); err != nil {
 			s.logger.Print(err)
 		}
-		return
+	case organizations.ActionRead:
+		org, err := organizationByName(s.db, string(req.Name()))
+		if err != nil {
+			// Do something
+			return
+		}
+		if _, err := prefixedio.WriteBytes(conn, org.toFlatBufferBytes(b)); err != nil {
+			s.logger.Print(err)
+		}
 	}
+	return
 }
 
 func (s *server) run(addr string) error {

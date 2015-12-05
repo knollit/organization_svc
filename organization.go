@@ -1,6 +1,7 @@
 package main
 
 import (
+	"database/sql"
 	"fmt"
 
 	"github.com/google/flatbuffers/go"
@@ -13,8 +14,8 @@ type organization struct {
 	err    string
 }
 
-func allOrganizations(s *server) (orgs []organization, err error) {
-	rows, err := s.db.Query("SELECT name FROM organizations")
+func allOrganizations(db *sql.DB) (orgs []organization, err error) {
+	rows, err := db.Query("SELECT name FROM organizations")
 	if err != nil {
 		return
 	}
@@ -25,6 +26,18 @@ func allOrganizations(s *server) (orgs []organization, err error) {
 			return
 		}
 		orgs = append(orgs, organization{Name: name})
+	}
+	return
+}
+
+func organizationByName(db *sql.DB, name string) (org *organization, err error) {
+	row := db.QueryRow("SELECT name FROM organizations WHERE name = $1 LIMIT 1", name)
+	var dbName string
+	if err = row.Scan(&dbName); err != nil {
+		return
+	}
+	org = &organization{
+		Name: dbName,
 	}
 	return
 }
