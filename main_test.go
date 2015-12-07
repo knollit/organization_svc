@@ -2,9 +2,12 @@ package main
 
 import (
 	"database/sql"
+	"flag"
+	"fmt"
 	"io/ioutil"
 	"log"
 	"net"
+	"os"
 	"testing"
 	"time"
 
@@ -12,6 +15,26 @@ import (
 	"github.com/mikeraimondi/knollit/http_frontend/organizations"
 	"github.com/mikeraimondi/prefixedio"
 )
+
+var afterCallbacks map[string]func() error
+
+func TestMain(m *testing.M) {
+	flag.Parse()
+	afterCallbacks = make(map[string]func() error)
+	exitCode := m.Run()
+	for _, cb := range afterCallbacks {
+		if err := cb(); err != nil {
+			fmt.Println(err)
+		}
+	}
+	os.Exit(exitCode)
+}
+
+func registerAfterCallback(id string, cb func() error) {
+	if _, ok := afterCallbacks[id]; !ok {
+		afterCallbacks[id] = cb
+	}
+}
 
 type logWriter struct {
 	*testing.T
@@ -22,9 +45,17 @@ func (l *logWriter) Write(p []byte) (n int, err error) {
 	return len(p), nil
 }
 
-var dbCreated bool
+type testDB struct {
+	DB
+}
 
-func runWithDB(t *testing.T, testFunc func(*sql.DB)) {
+func (db testDB) Close() error {
+	return nil
+}
+
+var dbCreated bool // TODO GET RID OF IT
+
+func runWithDB(t *testing.T, testFunc func(testDB)) {
 	if !dbCreated {
 
 		db, _ := sql.Open("postgres", "user=mike host=localhost dbname=postgres sslmode=disable")
@@ -38,30 +69,35 @@ func runWithDB(t *testing.T, testFunc func(*sql.DB)) {
 	}
 
 	db, _ := sql.Open("postgres", "user=mike host=localhost dbname=endpoints_test sslmode=disable")
+	registerAfterCallback("closeDB", func() error {
+		return db.Close()
+	})
+	testDB := testDB{
+		DB: db,
+	}
 	setupSQL, _ := ioutil.ReadFile("db/db.sql")
-	if _, err := db.Exec(string(setupSQL)); err != nil {
+	if _, err := testDB.Exec(string(setupSQL)); err != nil {
 		t.Fatal("Error setting up DB: ", err)
 	}
-	if _, err := db.Exec("BEGIN"); err != nil {
+	if _, err := testDB.Exec("BEGIN"); err != nil {
 		t.Fatal("Error starting TX: ", err)
 	}
 	defer func() {
-		if _, err := db.Exec("ROLLBACK"); err != nil {
+		if _, err := testDB.Exec("ROLLBACK"); err != nil {
 			t.Fatal("Error rolling back TX: ", err)
 		}
 	}()
-	testFunc(db)
+	testFunc(testDB)
 	return
 }
 
 func runWithServer(t *testing.T, testFunc func(*server)) {
-	runWithDB(t, func(db *sql.DB) {
+	runWithDB(t, func(db testDB) {
 		// Setup server
 		rdy := make(chan int)
 		s := newServer()
 		defer func() {
-			listener, _ := s.listenFunc("")
-			if err := listener.Close(); err != nil {
+			if err := s.Close(); err != nil {
 				t.Fatal("Error closing server: ", err)
 			}
 		}()
@@ -122,7 +158,7 @@ func TestEndpointIndexWithOne(t *testing.T) {
 		orgRes := organizations.GetRootAsOrganization(buf.Bytes(), 0)
 
 		if resName := string(orgRes.Name()); resName != name {
-			t.Fatalf("Expected %v for name, got %v", name, resName)
+			t.Fatalf("Received organization name doesn't match test name. Expected: %q. Actual: %q\n", name, resName)
 		}
 	})
 }

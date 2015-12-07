@@ -4,6 +4,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"database/sql"
+	"database/sql/driver"
 	"flag"
 	"fmt"
 	"io/ioutil"
@@ -91,8 +92,22 @@ func newServer() *server {
 	}
 }
 
+type DB interface {
+	Begin() (*sql.Tx, error)
+	Close() error
+	Driver() driver.Driver
+	Exec(query string, args ...interface{}) (sql.Result, error)
+	Ping() error
+	Prepare(query string) (*sql.Stmt, error)
+	Query(query string, args ...interface{}) (*sql.Rows, error)
+	QueryRow(query string, args ...interface{}) *sql.Row
+	SetMaxIdleConns(n int)
+	SetMaxOpenConns(n int)
+	Stats() sql.DBStats
+}
+
 type server struct {
-	db              *sql.DB
+	db              DB
 	listenFunc      func(string) (net.Listener, error)
 	logger          *log.Logger
 	ready           chan int
