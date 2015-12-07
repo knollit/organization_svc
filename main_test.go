@@ -16,11 +16,13 @@ import (
 	"github.com/mikeraimondi/prefixedio"
 )
 
-var afterCallbacks map[string]func() error
+var (
+	afterCallbacks []func() error
+	commonDB       *sql.DB
+)
 
 func TestMain(m *testing.M) {
 	flag.Parse()
-	afterCallbacks = make(map[string]func() error)
 	exitCode := m.Run()
 	for _, cb := range afterCallbacks {
 		if err := cb(); err != nil {
@@ -31,9 +33,7 @@ func TestMain(m *testing.M) {
 }
 
 func registerAfterCallback(id string, cb func() error) {
-	if _, ok := afterCallbacks[id]; !ok {
-		afterCallbacks[id] = cb
-	}
+	afterCallbacks = append(afterCallbacks, cb)
 }
 
 type logWriter struct {
@@ -53,11 +53,8 @@ func (db testDB) Close() error {
 	return nil
 }
 
-var dbCreated bool // TODO GET RID OF IT
-
 func runWithDB(t *testing.T, testFunc func(testDB)) {
-	if !dbCreated {
-
+	if commonDB == nil {
 		db, _ := sql.Open("postgres", "user=mike host=localhost dbname=postgres sslmode=disable")
 		if err := db.Ping(); err != nil {
 			t.Fatal("Error opening DB: ", err)
@@ -65,15 +62,14 @@ func runWithDB(t *testing.T, testFunc func(testDB)) {
 		db.Exec("DROP DATABASE IF EXISTS endpoints_test")
 		db.Exec("CREATE DATABASE endpoints_test")
 		db.Close()
-		dbCreated = true
+		commonDB, _ = sql.Open("postgres", "user=mike host=localhost dbname=endpoints_test sslmode=disable")
+		registerAfterCallback("closeDB", func() error {
+			return commonDB.Close()
+		})
 	}
 
-	db, _ := sql.Open("postgres", "user=mike host=localhost dbname=endpoints_test sslmode=disable")
-	registerAfterCallback("closeDB", func() error {
-		return db.Close()
-	})
 	testDB := testDB{
-		DB: db,
+		DB: commonDB,
 	}
 	setupSQL, _ := ioutil.ReadFile("db/db.sql")
 	if _, err := testDB.Exec(string(setupSQL)); err != nil {
