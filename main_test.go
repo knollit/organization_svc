@@ -32,7 +32,7 @@ func TestMain(m *testing.M) {
 	os.Exit(exitCode)
 }
 
-func registerAfterCallback(id string, cb func() error) {
+func registerAfterCallback(cb func() error) {
 	afterCallbacks = append(afterCallbacks, cb)
 }
 
@@ -47,13 +47,34 @@ func (l *logWriter) Write(p []byte) (n int, err error) {
 
 type testDB struct {
 	DB
+	testTx *sql.Tx
+}
+
+func (db testDB) Begin() (*sql.Tx, error) {
+	return db.testTx, nil
 }
 
 func (db testDB) Close() error {
 	return nil
 }
 
-func runWithDB(t *testing.T, testFunc func(testDB)) {
+func (db testDB) Exec(query string, args ...interface{}) (sql.Result, error) {
+	return db.testTx.Exec(query, args...)
+}
+
+func (db testDB) Prepare(query string) (*sql.Stmt, error) {
+	return db.testTx.Prepare(query)
+}
+
+func (db testDB) Query(query string, args ...interface{}) (*sql.Rows, error) {
+	return db.testTx.Query(query, args...)
+}
+
+func (db testDB) QueryRow(query string, args ...interface{}) *sql.Row {
+	return db.testTx.QueryRow(query, args...)
+}
+
+func runWithDB(t *testing.T, testFunc func(*testDB)) {
 	if commonDB == nil {
 		db, _ := sql.Open("postgres", "user=mike host=localhost dbname=postgres sslmode=disable")
 		if err := db.Ping(); err != nil {
@@ -63,23 +84,25 @@ func runWithDB(t *testing.T, testFunc func(testDB)) {
 		db.Exec("CREATE DATABASE endpoints_test")
 		db.Close()
 		commonDB, _ = sql.Open("postgres", "user=mike host=localhost dbname=endpoints_test sslmode=disable")
-		registerAfterCallback("closeDB", func() error {
+		registerAfterCallback(func() error {
 			return commonDB.Close()
 		})
 	}
 
-	testDB := testDB{
+	testDB := &testDB{
 		DB: commonDB,
 	}
 	setupSQL, _ := ioutil.ReadFile("db/db.sql")
-	if _, err := testDB.Exec(string(setupSQL)); err != nil {
+	if _, err := testDB.DB.Exec(string(setupSQL)); err != nil {
 		t.Fatal("Error setting up DB: ", err)
 	}
-	if _, err := testDB.Exec("BEGIN"); err != nil {
+	tx, err := testDB.DB.Begin()
+	if err != nil {
 		t.Fatal("Error starting TX: ", err)
 	}
+	testDB.testTx = tx
 	defer func() {
-		if _, err := testDB.Exec("ROLLBACK"); err != nil {
+		if err := tx.Rollback(); err != nil {
 			t.Fatal("Error rolling back TX: ", err)
 		}
 	}()
@@ -88,7 +111,7 @@ func runWithDB(t *testing.T, testFunc func(testDB)) {
 }
 
 func runWithServer(t *testing.T, testFunc func(*server)) {
-	runWithDB(t, func(db testDB) {
+	runWithDB(t, func(db *testDB) {
 		// Setup server
 		s := newServer()
 		defer func() {
