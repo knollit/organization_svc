@@ -110,7 +110,6 @@ type server struct {
 	db              DB
 	listenFunc      func(string) (net.Listener, error)
 	logger          *log.Logger
-	ready           chan int
 	builderPool     sync.Pool
 	prefixedBufPool sync.Pool
 }
@@ -179,9 +178,6 @@ func (s *server) run(addr string) error {
 	}
 
 	s.logger.Printf("Listening for requests on %s...\n", addr)
-	if s.ready != nil {
-		s.ready <- 1
-	}
 
 	for {
 		conn, err := listener.Accept()

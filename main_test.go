@@ -90,21 +90,24 @@ func runWithDB(t *testing.T, testFunc func(testDB)) {
 func runWithServer(t *testing.T, testFunc func(*server)) {
 	runWithDB(t, func(db testDB) {
 		// Setup server
-		rdy := make(chan int)
 		s := newServer()
 		defer func() {
 			if err := s.Close(); err != nil {
 				t.Fatal("Error closing server: ", err)
 			}
 		}()
-
 		s.db = db
+		rdy := make(chan int)
 		s.listenFunc = func(addr string) (net.Listener, error) {
-			return net.Listen("tcp", addr)
+			l, err := net.Listen("tcp", addr)
+			if err == nil {
+				rdy <- 1
+			}
+			return l, err
 		}
-		s.ready = rdy
 		s.logger = log.New(&logWriter{t}, "", log.Lmicroseconds)
 
+		// Run server on a separate goroutine
 		errs := make(chan error)
 		go func() {
 			errs <- s.run(":13900") // TODO not hardcoded
@@ -112,7 +115,7 @@ func runWithServer(t *testing.T, testFunc func(*server)) {
 		select {
 		case err := <-errs:
 			t.Fatal(err)
-		case <-time.NewTimer(10 * time.Second).C:
+		case <-time.NewTimer(5 * time.Second).C:
 			t.Fatal("Timed out waiting for server to start")
 		case <-rdy:
 			testFunc(s)
