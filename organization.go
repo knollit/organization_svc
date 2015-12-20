@@ -73,14 +73,13 @@ func organizationFromFlatBuffer(org *organizations.Organization) organization {
 func (org *organization) toFlatBufferBytes(b *flatbuffers.Builder) []byte {
 	b.Reset()
 
-	namePosition := b.CreateByteString([]byte(org.Name))
-
+	name := b.CreateString(org.Name)
 	organizations.OrganizationStart(b)
-
-	organizations.OrganizationAddName(b, namePosition)
+	organizations.OrganizationAddName(b, name)
 	organizations.OrganizationAddAction(b, org.action)
 
 	orgPosition := organizations.OrganizationEnd(b)
 	b.Finish(orgPosition)
-	return b.Bytes[b.Head():]
+
+	return b.FinishedBytes()
 }
