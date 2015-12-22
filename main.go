@@ -4,18 +4,16 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"database/sql"
-	"database/sql/driver"
 	"flag"
 	"fmt"
 	"io/ioutil"
 	"log"
 	"net"
 	"os"
-	"sync"
 
-	"github.com/google/flatbuffers/go"
 	_ "github.com/lib/pq"
 
+	"github.com/mikeraimondi/coelacanth"
 	"github.com/mikeraimondi/knollit/organization_svc/organizations"
 	"github.com/mikeraimondi/prefixedio"
 )
@@ -49,9 +47,6 @@ func main() {
 		logger.Fatal("Failed to parse CA cert")
 	}
 
-	server := newServer()
-	server.logger = logger
-	server.db = db
 	tlsConf := &tls.Config{
 		Certificates:       []tls.Certificate{cert},
 		RootCAs:            caCertPool,
@@ -65,137 +60,70 @@ func main() {
 		PreferServerCipherSuites: true,
 		MinVersion:               tls.VersionTLS12,
 	}
-	server.listenFunc = func(addr string) (net.Listener, error) {
-		return tls.Listen("tcp", addr, tlsConf)
+	serverConf := &coelacanth.Config{
+		DB: db,
+		ListenerFunc: func(addr string) (net.Listener, error) {
+			return tls.Listen("tcp", addr, tlsConf)
+		},
+		Logger: logger,
 	}
+	server := coelacanth.NewServer(serverConf)
 	defer func() {
 		if err := server.Close(); err != nil {
-			server.logger.Println("Failed to close server: ", err)
+			logger.Println("Failed to close server: ", err)
 		}
 	}()
 
-	server.logger.Fatal(server.run(":13800"))
+	logger.Fatal(server.Run(":13800", handler))
 }
 
-func newServer() *server {
-	return &server{
-		builderPool: sync.Pool{
-			New: func() interface{} {
-				return flatbuffers.NewBuilder(0)
-			},
-		},
-		prefixedBufPool: sync.Pool{
-			New: func() interface{} {
-				return &prefixedio.Buffer{}
-			},
-		},
-	}
-}
-
-type DB interface {
-	Begin() (*sql.Tx, error)
-	Close() error
-	Driver() driver.Driver
-	Exec(query string, args ...interface{}) (sql.Result, error)
-	Ping() error
-	Prepare(query string) (*sql.Stmt, error)
-	Query(query string, args ...interface{}) (*sql.Rows, error)
-	QueryRow(query string, args ...interface{}) *sql.Row
-	SetMaxIdleConns(n int)
-	SetMaxOpenConns(n int)
-	Stats() sql.DBStats
-}
-
-type server struct {
-	db              DB
-	listenFunc      func(string) (net.Listener, error)
-	logger          *log.Logger
-	builderPool     sync.Pool
-	prefixedBufPool sync.Pool
-}
-
-func (s *server) handler(conn net.Conn) {
+func handler(conn net.Conn, s *coelacanth.Server) {
 	defer conn.Close()
 
-	buf := s.prefixedBufPool.Get().(*prefixedio.Buffer)
-	defer s.prefixedBufPool.Put(buf)
+	buf := s.GetPrefixedBuf()
+	defer s.PutPrefixedBuf(buf)
 	_, err := buf.ReadFrom(conn)
 	if err != nil {
-		s.logger.Print(err)
+		s.Logger.Print(err)
 		// TODO send error
 		return
 	}
 	req := organizations.GetRootAsOrganization(buf.Bytes(), 0)
 
-	b := s.builderPool.Get().(*flatbuffers.Builder)
-	defer s.builderPool.Put(b)
+	b := s.GetBuilder()
+	defer s.PutBuilder(b)
 	switch req.Action() {
 	case organizations.ActionIndex:
-		orgs, err := allOrganizations(s.db)
+		orgs, err := allOrganizations(s.DB)
 		if err != nil {
-			s.logger.Print(err)
+			s.Logger.Print(err)
 			// TODO send error
 			return
 		}
 		for _, o := range orgs {
 			if _, err := prefixedio.WriteBytes(conn, o.toFlatBufferBytes(b)); err != nil {
-				s.logger.Print(err)
+				s.Logger.Print(err)
 			}
 		}
 	case organizations.ActionNew:
 		org := organizationFromFlatBuffer(req)
-		if err := org.save(s); err != nil {
-			s.logger.Print(err)
+		if err := org.save(s.DB); err != nil {
+			s.Logger.Print(err)
 			// TODO send error
 			return
 		}
 		if _, err := prefixedio.WriteBytes(conn, org.toFlatBufferBytes(b)); err != nil {
-			s.logger.Print(err)
+			s.Logger.Print(err)
 		}
 	case organizations.ActionRead:
-		org, err := organizationByName(s.db, string(req.Name()))
+		org, err := organizationByName(s.DB, string(req.Name()))
 		if err != nil {
 			// Do something
 			return
 		}
 		if _, err := prefixedio.WriteBytes(conn, org.toFlatBufferBytes(b)); err != nil {
-			s.logger.Print(err)
+			s.Logger.Print(err)
 		}
 	}
 	return
-}
-
-func (s *server) run(addr string) error {
-	if err := s.db.Ping(); err != nil {
-		return err
-	}
-	listener, err := s.listenFunc(addr)
-	if err != nil {
-		return err
-	}
-	s.listenFunc = func(s string) (net.Listener, error) {
-		return listener, nil
-	}
-
-	s.logger.Printf("Listening for requests on %s...\n", addr)
-
-	for {
-		conn, err := listener.Accept()
-		if err != nil {
-			return err
-		}
-		go s.handler(conn)
-	}
-}
-
-func (s *server) Close() error {
-	listener, _ := s.listenFunc("")
-	if err := listener.Close(); err != nil {
-		s.logger.Println("Failed to close TCP listener cleanly: ", err)
-	}
-	if err := s.db.Close(); err != nil {
-		s.logger.Println("Failed to close database connection cleanly: ", err)
-	}
-
-	return nil
 }

@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/google/flatbuffers/go"
+	"github.com/mikeraimondi/coelacanth"
 	"github.com/mikeraimondi/knollit/organization_svc/organizations"
 )
 
@@ -13,7 +14,7 @@ type organization struct {
 	err    string
 }
 
-func allOrganizations(db DB) (orgs []organization, err error) {
+func allOrganizations(db coelacanth.DB) (orgs []organization, err error) {
 	rows, err := db.Query("SELECT name FROM organizations")
 	if err != nil {
 		return
@@ -29,7 +30,7 @@ func allOrganizations(db DB) (orgs []organization, err error) {
 	return
 }
 
-func organizationByName(db DB, name string) (org *organization, err error) {
+func organizationByName(db coelacanth.DB, name string) (org *organization, err error) {
 	row := db.QueryRow("SELECT name FROM organizations WHERE name = $1 LIMIT 1", name)
 	var dbName string
 	if err = row.Scan(&dbName); err != nil {
@@ -41,7 +42,7 @@ func organizationByName(db DB, name string) (org *organization, err error) {
 	return
 }
 
-func (org *organization) save(s *server) (err error) {
+func (org *organization) save(db coelacanth.DB) (err error) {
 	const nameMaxLen = 128
 	const nameMinLen = 3
 	if len(org.Name) > nameMaxLen {
@@ -52,7 +53,7 @@ func (org *organization) save(s *server) (err error) {
 		org.err = fmt.Sprintf("Name must be %v or more characters long", nameMinLen)
 		return
 	}
-	if _, err = s.db.Exec("INSERT INTO organizations (name) VALUES ($1)", org.Name); err != nil {
+	if _, err = db.Exec("INSERT INTO organizations (name) VALUES ($1)", org.Name); err != nil {
 		if err.Error() == "pq: duplicate key value violates unique constraint \"organizations_pkey\"" {
 			org.err = "That name has already been taken"
 			return nil
