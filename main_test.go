@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/google/flatbuffers/go"
+	"github.com/mikeraimondi/coelacanth"
 	"github.com/mikeraimondi/knollit/http_frontend/organizations"
 	"github.com/mikeraimondi/prefixedio"
 )
@@ -46,7 +47,7 @@ func (l *logWriter) Write(p []byte) (n int, err error) {
 }
 
 type testDB struct {
-	DB
+	coelacanth.DB
 	testTx *sql.Tx
 }
 
@@ -110,30 +111,32 @@ func runWithDB(t *testing.T, testFunc func(*testDB)) {
 	return
 }
 
-func runWithServer(t *testing.T, testFunc func(*server)) {
+func runWithServer(t *testing.T, testFunc func(*coelacanth.Server)) {
 	runWithDB(t, func(db *testDB) {
 		// Setup server
-		s := newServer()
+		rdy := make(chan int)
+		conf := &coelacanth.Config{
+			DB: db,
+			ListenerFunc: func(addr string) (net.Listener, error) {
+				l, err := net.Listen("tcp", addr)
+				if err == nil {
+					rdy <- 1
+				}
+				return l, err
+			},
+			Logger: log.New(&logWriter{t}, "", log.Lmicroseconds),
+		}
+		s := coelacanth.NewServer(conf)
 		defer func() {
 			if err := s.Close(); err != nil {
 				t.Fatal("Error closing server: ", err)
 			}
 		}()
-		s.db = db
-		rdy := make(chan int)
-		s.listenFunc = func(addr string) (net.Listener, error) {
-			l, err := net.Listen("tcp", addr)
-			if err == nil {
-				rdy <- 1
-			}
-			return l, err
-		}
-		s.logger = log.New(&logWriter{t}, "", log.Lmicroseconds)
 
 		// Run server on a separate goroutine
 		errs := make(chan error)
 		go func() {
-			errs <- s.run(":13900") // TODO not hardcoded
+			errs <- s.Run(":13900", handler) // TODO not hardcoded
 		}()
 		select {
 		case err := <-errs:
@@ -148,16 +151,15 @@ func runWithServer(t *testing.T, testFunc func(*server)) {
 }
 
 func TestEndpointIndexWithOne(t *testing.T) {
-	runWithServer(t, func(s *server) {
+	runWithServer(t, func(s *coelacanth.Server) {
 		// Test-specific setup
 		const name = "testOrg"
-		if _, err := s.db.Exec("INSERT INTO organizations (name) VALUES ($1)", name); err != nil {
+		if _, err := s.DB.Exec("INSERT INTO organizations (name) VALUES ($1)", name); err != nil {
 			t.Fatal(err)
 		}
 
 		// Begin test
-		listener, _ := s.listenFunc("")
-		conn, err := net.Dial("tcp", listener.Addr().String())
+		conn, err := net.Dial("tcp", s.GetAddr())
 		if err != nil {
 			t.Fatal(err)
 		}
