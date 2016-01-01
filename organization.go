@@ -75,7 +75,9 @@ func (org *organization) toFlatBufferBytes(b *flatbuffers.Builder) []byte {
 	b.Reset()
 
 	name := b.CreateString(org.Name)
+
 	organizations.OrganizationStart(b)
+
 	organizations.OrganizationAddName(b, name)
 	organizations.OrganizationAddAction(b, org.action)
 
