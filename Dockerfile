@@ -1,8 +1,8 @@
 FROM centurylink/ca-certs
 
-COPY organizations /
+COPY organization_svc /
 COPY certs /
 
 EXPOSE 13800
 
-ENTRYPOINT ["/organizations"]
+ENTRYPOINT ["/organization_svc"]

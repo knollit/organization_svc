@@ -5,7 +5,7 @@ import (
 
 	"github.com/google/flatbuffers/go"
 	"github.com/mikeraimondi/coelacanth"
-	"github.com/mikeraimondi/knollit/organization_svc/organizations"
+	"github.com/knollit/organization_svc/organizations"
 )
 
 type organization struct {

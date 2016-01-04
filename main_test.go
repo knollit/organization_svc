@@ -9,7 +9,7 @@ import (
 	"github.com/google/flatbuffers/go"
 	"github.com/mikeraimondi/coelacanth"
 	ct "github.com/mikeraimondi/coelacanth/testing"
-	"github.com/mikeraimondi/knollit/http_frontend/organizations"
+	"github.com/knollit/http_frontend/organizations"
 	"github.com/mikeraimondi/prefixedio"
 )
 
