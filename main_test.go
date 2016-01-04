@@ -7,8 +7,8 @@ import (
 	"testing"
 
 	"github.com/google/flatbuffers/go"
-	"github.com/mikeraimondi/coelacanth"
-	ct "github.com/mikeraimondi/coelacanth/testing"
+	"github.com/knollit/coelacanth"
+	ct "github.com/knollit/coelacanth/testing"
 	"github.com/knollit/http_frontend/organizations"
 	"github.com/mikeraimondi/prefixedio"
 )

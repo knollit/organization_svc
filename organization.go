@@ -4,7 +4,7 @@ import (
 	"fmt"
 
 	"github.com/google/flatbuffers/go"
-	"github.com/mikeraimondi/coelacanth"
+	"github.com/knollit/coelacanth"
 	"github.com/knollit/organization_svc/organizations"
 )
 
