@@ -9,7 +9,7 @@ import (
 	"github.com/google/flatbuffers/go"
 	"github.com/knollit/coelacanth"
 	ct "github.com/knollit/coelacanth/testing"
-	"github.com/knollit/http_frontend/organizations"
+	"github.com/knollit/organization_svc/organizations"
 	"github.com/mikeraimondi/prefixedio"
 )
 
@@ -21,7 +21,7 @@ func TestMain(m *testing.M) {
 }
 
 func TestEndpointIndexWithOne(t *testing.T) {
-	ct.RunWithServer(t, handler, func(s *coelacanth.Server) {
+	ct.RunWithServer(t, handler, func(s *coelacanth.Server, addr string) {
 		// Test-specific setup
 		const name = "testOrg"
 		if _, err := s.DB.Exec("INSERT INTO organizations (name) VALUES ($1)", name); err != nil {
@@ -29,7 +29,7 @@ func TestEndpointIndexWithOne(t *testing.T) {
 		}
 
 		// Begin test
-		conn, err := net.Dial("tcp", s.GetAddr())
+		conn, err := net.Dial("tcp", addr)
 		if err != nil {
 			t.Fatal(err)
 		}
