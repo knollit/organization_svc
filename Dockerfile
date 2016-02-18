@@ -1,6 +1,6 @@
 FROM centurylink/ca-certs
 
-COPY organization_svc /
+COPY dest /
 COPY certs /
 
 EXPOSE 13800
