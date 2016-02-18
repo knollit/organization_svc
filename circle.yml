@@ -16,9 +16,6 @@ deployment:
     commands:
       - docker login -e $DOCKER_EMAIL -u $DOCKER_USER -p $DOCKER_PASS
       - make publish
-      - ./build.sh:
-          pwd:
-            db
-      - ./push.sh:
+      - make publish:
           pwd:
             db
