@@ -10,6 +10,7 @@ import (
 
 type organization struct {
 	Name   string
+	ID     string
 	action int8
 	err    string
 }
@@ -31,12 +32,14 @@ func allOrganizations(db coelacanth.DB) (orgs []organization, err error) {
 }
 
 func organizationByName(db coelacanth.DB, name string) (org *organization, err error) {
-	row := db.QueryRow("SELECT name FROM organizations WHERE name = $1 LIMIT 1", name)
+	row := db.QueryRow("SELECT id, name FROM organizations WHERE name = $1 LIMIT 1", name)
+	var dbID string
 	var dbName string
-	if err = row.Scan(&dbName); err != nil {
+	if err = row.Scan(&dbID, &dbName); err != nil {
 		return
 	}
 	org = &organization{
+		ID:   dbID,
 		Name: dbName,
 	}
 	return
@@ -65,6 +68,7 @@ func (org *organization) save(db coelacanth.DB) (err error) {
 
 func organizationFromFlatBuffer(org *organizations.Organization) organization {
 	return organization{
+		ID:     string(org.ID()),
 		Name:   string(org.Name()),
 		action: org.Action(),
 		err:    string(org.Error()),
@@ -75,10 +79,12 @@ func (org *organization) toFlatBufferBytes(b *flatbuffers.Builder) []byte {
 	b.Reset()
 
 	nameOffset := b.CreateString(org.Name)
+	idOffset := b.CreateString(org.ID)
 
 	organizations.OrganizationStart(b)
 
 	organizations.OrganizationAddName(b, nameOffset)
+	organizations.OrganizationAddID(b, idOffset)
 	organizations.OrganizationAddAction(b, org.action)
 
 	orgPosition := organizations.OrganizationEnd(b)
