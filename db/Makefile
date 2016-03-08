@@ -1,4 +1,4 @@
-repo = knollit/"$$PROJECT_NAME"_rdbms
+repo = knollit/organization_svc_rdbms
 
 all: build
 
